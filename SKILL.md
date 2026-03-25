@@ -331,7 +331,7 @@ output/<模块名>/
 | **数值边界** | **0 / 负数 / 极大数(999999999) / 小数精度 / 百分比≥100%** |
 | **图片媒体** | **正常 / 无图(null) / 加载失败(404) / 异常宽高比** |
 | **特殊字符** | **emoji / 中日韩混排 / HTML标签 / 换行符** |
-| **设备尺寸** | **大屏(Pro Max) / 标准屏 / 小屏(SE/mini) — 布局适配、文字截断、底部遮挡** |
+| **设备尺寸** | **大屏(Pro Max) / 标准屏 / 小屏(SE/mini) / iPad(竖屏+横屏) — 布局适配、文字截断、留白、弹窗宽度** |
 | 平台差异 | iOS vs Android 的条件分支 |
 | 账号绑定 | 已绑定/未绑定第三方账号 |
 | 弹窗覆盖 | Dialog / BottomSheet / Toast / Snackbar |
@@ -355,9 +355,14 @@ output/<模块名>/
 - "截图 XX 功能的多机型适配"
 - "大屏小屏都截一下"
 - "SE 上看看效果"
+- "iPad 上看看效果"
 - "帮我做一下适配验收"
+- "帮我截 iPad 的效果"
+- "横屏竖屏都截一下"
 
 ### 预设机型组
+
+**iPhone 机型组：**
 
 | 组别 | 机型 | 屏幕特征 | 用途 |
 |------|------|---------|------|
@@ -366,20 +371,40 @@ output/<模块名>/
 | | iPhone SE (3rd) | 4.7" 小屏 | 小屏极端适配 |
 | **完整覆盖** | 上述 + iPhone 16 Pro Max | 6.9" 超大屏 | 最大屏幕验证 |
 | | + iPhone 13 mini | 5.4" 迷你屏 | 最小刘海屏 |
-| **自定义** | 用户指定 | — | 按需选取 |
 
-> 用户未指定时，默认使用"核心三件套"。
+**iPad 机型组：**
+
+| 组别 | 机型 | 屏幕特征 | 用途 |
+|------|------|---------|------|
+| **iPad 核心**（用户提及 iPad 时默认） | iPad Pro 11-inch (M4) | 11" 标准 | iPad 主力基准 |
+| | iPad mini (A17 Pro) | 8.3" 迷你 | 最小 iPad |
+| **iPad 完整覆盖** | 上述 + iPad Pro 13-inch (M4) | 13" 大屏 | 最大 iPad |
+| | + iPad (A16) | 10.9" 入门 | 入门级 iPad |
+
+**全设备覆盖：**
+
+| 组别 | 机型 | 用途 |
+|------|------|------|
+| **全家桶** | iPhone 核心三件套 + iPad 核心 | 手机 + 平板一起验收 |
+
+| **自定义** | 用户指定任意机型 | 按需选取 |
+
+> - 用户未指定时，默认使用 iPhone"核心三件套"
+> - 用户提及"iPad"时，自动加入 iPad 核心组
+> - 用户说"全设备"或"所有机型"时，使用全家桶
 
 ### 工作流程
 
 1. **创建所需模拟器**（如果不存在）：
    ```bash
-   # 查看可用的 device type
-   xcrun simctl list devicetypes | grep -i "iphone"
+   # 查看可用的 device type（iPhone + iPad）
+   xcrun simctl list devicetypes | grep -iE "iphone|ipad"
    # 查看可用的 runtime
    xcrun simctl list runtimes | grep -i ios
-   # 创建模拟器（示例）
+   # 创建 iPhone 模拟器（示例）
    xcrun simctl create "iPhone SE 3" com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation com.apple.CoreSimulator.SimRuntime.iOS-18-4
+   # 创建 iPad 模拟器（示例）
+   xcrun simctl create "iPad Pro 11 M4" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-18-4
    ```
 
 2. **逐机型截图循环**：
@@ -403,26 +428,64 @@ output/<模块名>/
    - 如果只需要对比少量关键状态（≤5 个），可以先在主机型上截完全部状态，再在其他机型上只截这几个关键状态
    - 对于需要临时改代码的状态，在切换机型前保持代码修改不变，多个机型连续截图后再还原
 
+4. **iPad 特有截图要求**：
+
+   **横竖屏都要截：**
+   ```bash
+   # 获取当前 booted 的 iPad 设备 ID
+   IPAD_ID=$(xcrun simctl list devices booted | grep iPad | head -1 | grep -oE '[0-9A-F-]{36}')
+   
+   # 竖屏截图（默认状态）
+   xcrun simctl io $IPAD_ID screenshot <PATH>/<序号>_ipad11_portrait_<状态>.png
+   
+   # 旋转到横屏（通过 Simulator 菜单或快捷键）
+   osascript -e 'tell application "Simulator" to activate' -e 'tell application "System Events" to keystroke (ASCII character 29) using command down'
+   sleep 2
+   xcrun simctl io $IPAD_ID screenshot <PATH>/<序号>_ipad11_landscape_<状态>.png
+   
+   # 旋转回竖屏
+   osascript -e 'tell application "Simulator" to activate' -e 'tell application "System Events" to keystroke (ASCII character 28) using command down'
+   ```
+   > - `Cmd + →` 顺时针旋转、`Cmd + ←` 逆时针旋转
+   > - 旋转后等待 2 秒让 UI 完成重新布局再截图
+
+   **iPad 关注的适配问题：**
+   - 横屏布局是否合理（是否只是竖屏拉宽，还是有专门的横屏布局）
+   - 大屏幕上的内容居中/留白是否合适
+   - 文字和按钮在大屏上是否过小或过大
+   - NavigationBar / TabBar 在 iPad 上的表现
+   - 弹窗 (Dialog/BottomSheet) 在 iPad 大屏上的宽度是否合理
+   - Split View / Slide Over 多任务场景（如 app 支持的话）
+
 ### 截图命名规范（多机型）
 
 增加机型标识：
 ```
-01_pro_plan_empty.png        ← iPhone 16 Pro
-01_std_plan_empty.png        ← iPhone 16
-01_se_plan_empty.png         ← iPhone SE
-01_max_plan_empty.png        ← iPhone 16 Pro Max
-01_mini_plan_empty.png       ← iPhone 13 mini
+01_pro_plan_empty.png                ← iPhone 16 Pro
+01_std_plan_empty.png                ← iPhone 16
+01_se_plan_empty.png                 ← iPhone SE
+01_ipad11_portrait_plan_empty.png    ← iPad Pro 11" 竖屏
+01_ipad11_landscape_plan_empty.png   ← iPad Pro 11" 横屏
+01_ipadmini_portrait_plan_empty.png  ← iPad mini 竖屏
 ```
 
 机型缩写对照：
 | 机型 | 缩写 |
 |------|------|
+| **iPhone** | |
 | iPhone 16 Pro Max | `max` |
 | iPhone 16 Pro | `pro` |
 | iPhone 16 | `std` |
 | iPhone SE (3rd) | `se` |
 | iPhone 13 mini | `mini` |
+| **iPad** | |
+| iPad Pro 13-inch | `ipad13` |
+| iPad Pro 11-inch | `ipad11` |
+| iPad (A16) | `ipad` |
+| iPad mini | `ipadmini` |
 | 其他 | 取型号中最短辨识词 |
+
+> iPad 截图文件名中必须包含 `portrait` 或 `landscape` 方向标识。
 
 ### HTML 输出（多机型模式）
 
@@ -430,16 +493,26 @@ output/<模块名>/
 
 - **按状态分组**：每个状态一行，该行内横向排列所有机型的截图
 - 每张截图下方标注**机型名称**和**屏幕尺寸**
-- 手机外框的宽度按机型实际比例微调（SE 窄一些、Pro Max 宽一些）：
+- 手机/平板外框的宽度按机型实际比例微调：
   ```css
+  /* iPhone */
   .phone-frame.size-se   { width: 220px; border-radius: 28px; }
   .phone-frame.size-std  { width: 260px; }
   .phone-frame.size-pro  { width: 280px; }
   .phone-frame.size-max  { width: 300px; }
   .phone-frame.size-mini { width: 240px; }
+  /* iPad 竖屏 */
+  .phone-frame.size-ipadmini { width: 320px; border-radius: 24px; }
+  .phone-frame.size-ipad     { width: 360px; border-radius: 24px; }
+  .phone-frame.size-ipad11   { width: 380px; border-radius: 24px; }
+  .phone-frame.size-ipad13   { width: 420px; border-radius: 24px; }
+  /* iPad 横屏 */
+  .phone-frame.landscape     { width: 520px; border-radius: 24px; }
   ```
-- 底部覆盖率表格增加"机型覆盖"列
+- iPad 截图在 HTML 中标注**方向标识**（竖屏 `Portrait` / 横屏 `Landscape`）
+- 底部覆盖率表格增加"机型覆盖"列和"方向覆盖"列
 - 如果某状态在某机型上布局明显异常（溢出、截断、遮挡），自动标注红色 `⚠️ 适配问题` 标签
+- iPad 横屏截图如果出现大面积空白/内容不居中，标注黄色 `⚠️ 横屏适配待优化`
 
 ### 输出目录结构（多机型）
 
@@ -450,9 +523,11 @@ output/<模块名>/
     ├── 01_pro_xxx.png
     ├── 01_std_xxx.png
     ├── 01_se_xxx.png
+    ├── 01_ipad11_portrait_xxx.png
+    ├── 01_ipad11_landscape_xxx.png
+    ├── 01_ipadmini_portrait_xxx.png
     ├── 02_pro_xxx.png
-    ├── 02_std_xxx.png
-    ├── 02_se_xxx.png
+    ├── 02_ipad11_portrait_xxx.png
     └── ...
 ```
 
