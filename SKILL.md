@@ -4,7 +4,8 @@ description: >
   Flutter 功能模块全状态截图生成工具。当用户说"帮我把xx功能全部状态列出来"、"截图xx页面所有状态"、"帮我看看xx模块的状态"、"把xx的状态矩阵输出给我"、"帮我截图xx的极端情况"、"截图xx的边界case"时触发。
   通过真实 iOS 模拟器截图 + HTML 汇总，自动梳理指定模块的所有 UI 状态组合（订阅/非订阅、加载中/成功/失败/空态、有网/无网、弹窗等），
   并主动构造极端数据覆盖边界场景（空内容/超长文本/超长列表/零值负数/图片加载失败/特殊字符等），输出带状态文案标注的可视化 HTML 文档。
-  适用于：功能开发完成后的视觉走查、设计评审、QA 测试用例对照、边界case验收。
+  支持多机型对比截图（大屏/小屏/SE），同一状态在不同尺寸设备上的适配一目了然。
+  适用于：功能开发完成后的视觉走查、设计评审、QA 测试用例对照、边界case验收、多机型适配验收。
 ---
 
 # Flutter 全状态截图生成
@@ -39,22 +40,34 @@ description: >
 
 ### Phase 2: 准备模拟器环境
 
-1. 检查 iOS 模拟器是否已启动：
+1. **确定目标机型列表**：
+   - 默认使用当前已启动的单个模拟器
+   - 如果用户要求多机型截图，从预设机型组中选取（见「多机型截图」章节）
+   - 查看已安装的可用模拟器：
+     ```bash
+     xcrun simctl list devices available | grep -E "iPhone|iPad"
+     ```
+
+2. 检查 iOS 模拟器是否已启动：
    ```bash
    xcrun simctl list devices booted
    ```
-2. 检查 Flutter app 是否在运行：
+
+3. 检查 Flutter app 是否在运行：
    ```bash
    ps aux | grep "flutter.*run"
    ```
-3. 如未运行，启动模拟器和 Flutter app：
+
+4. 如未运行，启动模拟器和 Flutter app：
    ```bash
    open -a Simulator
    xcrun simctl boot <DEVICE_ID>
    cd <PROJECT_ROOT> && flutter run -d <DEVICE_ID>
    ```
-4. 等待 app 完全加载（检查 terminal 输出中出现 "Flutter run key commands"）
-5. 在 Skill 所在目录下创建截图输出目录：
+
+5. 等待 app 完全加载（检查 terminal 输出中出现 "Flutter run key commands"）
+
+6. 在 Skill 所在目录下创建截图输出目录：
    ```bash
    mkdir -p <SKILL_DIR>/output/<模块名>/screenshots/
    ```
@@ -318,6 +331,7 @@ output/<模块名>/
 | **数值边界** | **0 / 负数 / 极大数(999999999) / 小数精度 / 百分比≥100%** |
 | **图片媒体** | **正常 / 无图(null) / 加载失败(404) / 异常宽高比** |
 | **特殊字符** | **emoji / 中日韩混排 / HTML标签 / 换行符** |
+| **设备尺寸** | **大屏(Pro Max) / 标准屏 / 小屏(SE/mini) — 布局适配、文字截断、底部遮挡** |
 | 平台差异 | iOS vs Android 的条件分支 |
 | 账号绑定 | 已绑定/未绑定第三方账号 |
 | 弹窗覆盖 | Dialog / BottomSheet / Toast / Snackbar |
@@ -328,6 +342,119 @@ output/<模块名>/
 | **快速重复操作** | **连点按钮 → 防重复提交、loading防穿透** |
 | 外部唤起 | 深链接/剪贴板检测跳入功能的表现 |
 | **时间边界** | **刚刚 / 跨天 / 很久以前 / 未来时间** |
+
+## 多机型截图
+
+> 同一个状态在不同屏幕尺寸上可能表现完全不同（文字截断、布局溢出、底部遮挡等）。
+> 当用户要求"多机型截图"或"适配验收"时启用本流程。
+
+### 触发条件
+
+以下说法触发多机型模式：
+- "帮我在不同机型上截图"
+- "截图 XX 功能的多机型适配"
+- "大屏小屏都截一下"
+- "SE 上看看效果"
+- "帮我做一下适配验收"
+
+### 预设机型组
+
+| 组别 | 机型 | 屏幕特征 | 用途 |
+|------|------|---------|------|
+| **核心三件套**（默认） | iPhone 16 Pro | 6.3" 大屏 | 主力机型基准 |
+| | iPhone 16 | 6.1" 标准屏 | 最常见尺寸 |
+| | iPhone SE (3rd) | 4.7" 小屏 | 小屏极端适配 |
+| **完整覆盖** | 上述 + iPhone 16 Pro Max | 6.9" 超大屏 | 最大屏幕验证 |
+| | + iPhone 13 mini | 5.4" 迷你屏 | 最小刘海屏 |
+| **自定义** | 用户指定 | — | 按需选取 |
+
+> 用户未指定时，默认使用"核心三件套"。
+
+### 工作流程
+
+1. **创建所需模拟器**（如果不存在）：
+   ```bash
+   # 查看可用的 device type
+   xcrun simctl list devicetypes | grep -i "iphone"
+   # 查看可用的 runtime
+   xcrun simctl list runtimes | grep -i ios
+   # 创建模拟器（示例）
+   xcrun simctl create "iPhone SE 3" com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation com.apple.CoreSimulator.SimRuntime.iOS-18-4
+   ```
+
+2. **逐机型截图循环**：
+   ```
+   for each DEVICE in 机型列表:
+     1. 关闭当前 app（如有）
+     2. boot 目标模拟器
+        xcrun simctl boot <DEVICE_ID>
+     3. 安装并启动 app
+        xcrun simctl install <DEVICE_ID> <APP_PATH>
+        xcrun simctl launch <DEVICE_ID> <BUNDLE_ID>
+        或使用 flutter run -d <DEVICE_ID>
+     4. 等待 app 加载完成
+     5. 对每个目标状态执行截图
+        xcrun simctl io <DEVICE_ID> screenshot <PATH>/<序号>_<机型>_<状态>.png
+     6. shutdown 当前模拟器
+        xcrun simctl shutdown <DEVICE_ID>
+   ```
+
+3. **优化策略 — 减少重复启动**：
+   - 如果只需要对比少量关键状态（≤5 个），可以先在主机型上截完全部状态，再在其他机型上只截这几个关键状态
+   - 对于需要临时改代码的状态，在切换机型前保持代码修改不变，多个机型连续截图后再还原
+
+### 截图命名规范（多机型）
+
+增加机型标识：
+```
+01_pro_plan_empty.png        ← iPhone 16 Pro
+01_std_plan_empty.png        ← iPhone 16
+01_se_plan_empty.png         ← iPhone SE
+01_max_plan_empty.png        ← iPhone 16 Pro Max
+01_mini_plan_empty.png       ← iPhone 13 mini
+```
+
+机型缩写对照：
+| 机型 | 缩写 |
+|------|------|
+| iPhone 16 Pro Max | `max` |
+| iPhone 16 Pro | `pro` |
+| iPhone 16 | `std` |
+| iPhone SE (3rd) | `se` |
+| iPhone 13 mini | `mini` |
+| 其他 | 取型号中最短辨识词 |
+
+### HTML 输出（多机型模式）
+
+多机型模式下 HTML 布局调整为：
+
+- **按状态分组**：每个状态一行，该行内横向排列所有机型的截图
+- 每张截图下方标注**机型名称**和**屏幕尺寸**
+- 手机外框的宽度按机型实际比例微调（SE 窄一些、Pro Max 宽一些）：
+  ```css
+  .phone-frame.size-se   { width: 220px; border-radius: 28px; }
+  .phone-frame.size-std  { width: 260px; }
+  .phone-frame.size-pro  { width: 280px; }
+  .phone-frame.size-max  { width: 300px; }
+  .phone-frame.size-mini { width: 240px; }
+  ```
+- 底部覆盖率表格增加"机型覆盖"列
+- 如果某状态在某机型上布局明显异常（溢出、截断、遮挡），自动标注红色 `⚠️ 适配问题` 标签
+
+### 输出目录结构（多机型）
+
+```
+output/<模块名>/
+├── <模块名>_states.html
+└── screenshots/
+    ├── 01_pro_xxx.png
+    ├── 01_std_xxx.png
+    ├── 01_se_xxx.png
+    ├── 02_pro_xxx.png
+    ├── 02_std_xxx.png
+    ├── 02_se_xxx.png
+    └── ...
+```
 
 ## 注意事项
 
